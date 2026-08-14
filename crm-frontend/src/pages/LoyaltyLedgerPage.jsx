@@ -1,0 +1,23 @@
+import { useEffect, useMemo, useState } from 'react';
+import { ScrollText, Search, ArrowDownLeft, ArrowUpRight, RotateCcw, Hourglass, Download } from 'lucide-react';
+import { loyaltyAdminService } from '../api/api';
+import { PageHeader } from '../components/common/Breadcrumbs';
+import { Badge, Button, Card, SkeletonTable } from '../components/common/UI';
+import { formatDateTime, toFa } from '../utils/ui';
+
+const types = { EARN: ['کسب', ArrowDownLeft, 'bg-emerald-100 text-emerald-700'], REDEEM: ['مصرف', ArrowUpRight, 'bg-violet-100 text-violet-700'], ADJUST: ['اصلاح', RotateCcw, 'bg-sky-100 text-sky-700'], EXPIRE: ['انقضا', Hourglass, 'bg-amber-100 text-amber-700'], REFUND: ['برگشت', RotateCcw, 'bg-slate-100 text-slate-700'] };
+
+export default function LoyaltyLedgerPage() {
+  const [items, setItems] = useState([]); const [loading, setLoading] = useState(true); const [query, setQuery] = useState(''); const [filter, setFilter] = useState('ALL');
+  useEffect(() => { loyaltyAdminService.getTransactions().then(r => setItems(r.data || [])).finally(() => setLoading(false)); }, []);
+  const filtered = useMemo(() => items.filter(i => (filter === 'ALL' || i.type === filter) && (!query || [i.customer?.fullName, i.customer?.company, i.description].some(v => v?.includes(query)))), [items, query, filter]);
+  const earned = items.filter(i => Number(i.points) > 0).reduce((s,i) => s + Number(i.points), 0); const spent = Math.abs(items.filter(i => Number(i.points) < 0).reduce((s,i) => s + Number(i.points), 0));
+  return <div className="space-y-6 animate-fade-in">
+    <PageHeader title="دفتر کل امتیاز" subtitle="ردپای شفاف و حسابرسی‌پذیر همه تغییرات امتیاز" icon={ScrollText} actions={<Button variant="secondary" icon={Download}>خروجی</Button>} />
+    <div className="grid sm:grid-cols-3 gap-3"><Summary label="تراکنش نمایش‌داده‌شده" value={toFa(filtered.length)} tone="slate"/><Summary label="امتیاز صادرشده" value={`+${toFa(earned)}`} tone="emerald"/><Summary label="امتیاز مصرف‌شده" value={`-${toFa(spent)}`} tone="violet"/></div>
+    <Card className="p-4"><div className="flex flex-col lg:flex-row gap-3"><div className="relative flex-1"><Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="جستجو عضو یا شرح تراکنش..." className="w-full pr-10 pl-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent text-sm outline-none focus:ring-2 focus:ring-brand-500/30"/></div><div className="flex gap-2 overflow-x-auto">{[['ALL','همه'],['EARN','کسب'],['REDEEM','مصرف'],['ADJUST','اصلاح'],['EXPIRE','انقضا']].map(([v,l]) => <button key={v} onClick={() => setFilter(v)} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap ${filter === v ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>{l}</button>)}</div></div></Card>
+    {loading ? <SkeletonTable rows={6} cols={7}/> : <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[920px] text-sm"><thead><tr className="bg-slate-50 dark:bg-slate-800/60">{['نوع','عضو','شرح','منبع','تغییر','مانده بعد','زمان'].map(h => <th key={h} className="p-4 text-right text-xs text-slate-500">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">{filtered.map(item => { const [label,Icon,color] = types[item.type] || types.ADJUST; return <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40"><td className="p-4"><Badge color={color}><Icon className="w-3 h-3"/>{label}</Badge></td><td className="p-4"><b>{item.customer?.fullName || '—'}</b><div className="text-xs text-slate-400">{item.customer?.company}</div></td><td className="p-4 max-w-xs"><div className="truncate">{item.description}</div></td><td className="p-4 text-xs text-slate-500 font-mono" dir="ltr">{item.sourceType || 'MANUAL'}</td><td className={`p-4 text-base font-black ${Number(item.points) >= 0 ? 'text-emerald-600' : 'text-violet-600'}`}>{Number(item.points) > 0 ? '+' : ''}{toFa(item.points)}</td><td className="p-4 font-black">{toFa(item.balanceAfter)}</td><td className="p-4 text-xs text-slate-500">{formatDateTime(item.createdAt)}</td></tr>; })}</tbody></table></div></Card>}
+  </div>;
+}
+
+function Summary({ label, value, tone }) { const c = { slate:'text-slate-900 dark:text-white', emerald:'text-emerald-600', violet:'text-violet-600' }[tone]; return <Card className="p-4"><div className={`text-2xl font-black ${c}`}>{value}</div><div className="text-xs text-slate-400 mt-1">{label}</div></Card>; }
