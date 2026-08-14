@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Send, Megaphone, Users, Trophy, AlertTriangle, CheckCircle, Loader2, Plus } from 'lucide-react';
+import { Send, Megaphone, Users, Trophy, AlertTriangle, CheckCircle, Loader2, Plus, Trash2 } from 'lucide-react';
 import { campaignService } from '../api/api';
 import { cn, toFa, formatDateTime } from '../utils/ui';
-import { Card, SkeletonCard } from '../components/common/UI';
+import { Card, SkeletonCard, Button } from '../components/common/UI';
 import { PageHeader } from '../components/common/Breadcrumbs';
 import { showToast } from '../utils/toast';
+import DeleteCampaignModal from '../components/campaigns/DeleteCampaignModal';
 
 // ─── تنظیمات مخاطب ───
 const AUDIENCES = [
@@ -25,6 +26,8 @@ export default function CampaignPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [selectedCampaign, setSelectedCampaign] = useState(null);
 
   const [form, setForm] = useState({ title: '', message: '', audienceType: 'ALL_ACTIVE' });
 
@@ -32,9 +35,13 @@ export default function CampaignPage() {
     setLoading(true);
     try {
       const res = await campaignService.list();
-      setCampaigns(res.data?.items || []);
-    } catch {}
-    setLoading(false);
+      const campaignsData = Array.isArray(res?.data) ? res.data : res?.data?.items || [];
+      setCampaigns(campaignsData);
+    } catch (error) {
+      console.error('خطا در دریافت کمپین‌ها:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { fetchCampaigns(); }, []);
@@ -52,10 +59,30 @@ export default function CampaignPage() {
       setForm({ title: '', message: '', audienceType: 'ALL_ACTIVE' });
       setShowForm(false);
       fetchCampaigns();
-    } catch {
-      showToast('خطا در ارسال کمپین', 'error');
+    } catch (error) {
+      console.error('خطا در ارسال کمپین:', error);
+      showToast(error?.message || 'خطا در ارسال کمپین', 'error');
     }
     setSending(false);
+  };
+
+  // ===== حذف کمپین =====
+  const handleDelete = (campaign) => {
+    setSelectedCampaign(campaign);
+    setDeleteModalOpen(true);
+  };
+
+  const handleDeleteCampaign = async () => {
+    try {
+      await campaignService.remove(selectedCampaign.id);
+      showToast('کمپین با موفقیت حذف شد');
+      setDeleteModalOpen(false);
+      setSelectedCampaign(null);
+      fetchCampaigns();
+    } catch (error) {
+      console.error('خطا در حذف کمپین:', error);
+      showToast(error?.message || 'خطا در حذف کمپین', 'error');
+    }
   };
 
   return (
@@ -198,7 +225,7 @@ export default function CampaignPage() {
             const successRate = camp.totalRecipients > 0 ? Math.round((camp.sentCount / camp.totalRecipients) * 100) : 0;
 
             return (
-              <Card key={camp.id} className='p-4 sm:p-5 hover:shadow-md transition-shadow card-lift'>
+              <Card key={camp.id} className='p-4 sm:p-5 hover:shadow-md transition-shadow card-lift group'>
                 <div className='flex flex-col sm:flex-row sm:items-center gap-4'>
                   <div className='flex-1 min-w-0'>
                     <div className='flex items-center gap-2 mb-1'>
@@ -230,12 +257,29 @@ export default function CampaignPage() {
                       <div className='text-[10px] text-slate-400 dark:text-slate-500'>نرخ موفقیت</div>
                     </div>
                   </div>
+
+                  {/* دکمه حذف */}
+                  <button
+                    onClick={() => handleDelete(camp)}
+                    className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+                    title="حذف کمپین"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </Card>
             );
           })
         )}
       </div>
+
+      {/* مودال حذف */}
+      <DeleteCampaignModal
+        open={deleteModalOpen}
+        campaign={selectedCampaign}
+        onClose={() => { setDeleteModalOpen(false); setSelectedCampaign(null); }}
+        onConfirm={handleDeleteCampaign}
+      />
     </div>
   );
 }

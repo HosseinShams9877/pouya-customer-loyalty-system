@@ -8,12 +8,12 @@ import { Card } from '../components/common/UI';
 import { PageHeader } from '../components/common/Breadcrumbs';
 import { showToast } from '../utils/toast';
 import { cn } from '../utils/ui';
+import SimplePersianDatePicker from '../components/common/SimplePersianDatePicker';
 
 /** مبدل تاریخ میلادی → یونیکس timestamp (برای query param) */
-function dateToParam(dateStr) {
-  if (!dateStr) return '';
-  const d = new Date(dateStr);
-  return d.toISOString();
+function dateToParam(date) {
+  if (!date) return '';
+  return date.toISOString();
 }
 
 /** دانلود Blob به عنوان فایل */
@@ -29,8 +29,8 @@ function downloadBlob(blob, fileName) {
 }
 
 export default function ReportsPage() {
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
+  const [fromDate, setFromDate] = useState(null);
+  const [toDate, setToDate] = useState(null);
   const [exporting, setExporting] = useState(false);
 
   const fileInputRef = useRef(null);
@@ -108,25 +108,36 @@ export default function ReportsPage() {
       const formData = new FormData();
       formData.append('file', selectedFile);
       const res = await reportService.importInvoices(formData);
-      const data = res?.data;
-      if (data?.success) {
+      
+      console.log('📦 Import result:', res);
+
+      if (res?.success && res.data?.successCount > 0) {
         setImportResult({
           success: true,
-          successCount: data.data?.successCount || 0,
-          errorCount: data.data?.errorCount || 0,
-          errors: data.data?.errors || [],
-          message: data.message,
+          successCount: res.data?.successCount || 0,
+          errorCount: res.data?.errorCount || 0,
+          errors: res.data?.errors || [],
+          message: res.message || `✅ ${res.data?.successCount} فاکتور با موفقیت ثبت شد`,
         });
-        showToast(data.message, data.data?.errorCount > 0 ? 'warning' : 'success');
+        showToast(res.message || `✅ ${res.data?.successCount} فاکتور ثبت شد`, 'success');
         setSelectedFile(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
+      } else if (res?.success && res.data?.successCount === 0 && res.data?.errorCount > 0) {
+        setImportResult({
+          success: false,
+          message: res.message || `❌ ${res.data?.errorCount} خطا در پردازش فایل`,
+          errors: res.data?.errors || [],
+        });
+        showToast(res.message || `❌ ${res.data?.errorCount} خطا در پردازش فایل`, 'error');
       } else {
         setImportResult({
           success: false,
-          message: data?.message || 'خطا در پردازش فایل',
+          message: res?.message || 'خطا در پردازش فایل',
         });
+        showToast(res?.message || 'خطا در پردازش فایل', 'error');
       }
     } catch (e) {
+      console.error('Import error:', e);
       setImportResult({
         success: false,
         message: e.message || 'خطا در پردازش فایل اکسل',
@@ -147,7 +158,7 @@ export default function ReportsPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* ═══════ کارت ۱: خروجی اکسل ═══════ */}
-        <Card className="p-0 overflow-hidden">
+        <Card className="p-0 overflow-visible">
           <div className="bg-gradient-to-l from-brand-600 to-brand-500 px-5 py-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center">
@@ -169,29 +180,21 @@ export default function ReportsPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">از تاریخ</label>
-                <div className="relative">
-                  <Calendar className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    type="date"
-                    value={fromDate}
-                    onChange={(e) => setFromDate(e.target.value)}
-                    className="w-full pr-9 pl-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-surface-800 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 outline-none"
-                  />
-                </div>
+              <div className="relative">
+                <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">از تاریخ (شمسی)</label>
+                <SimplePersianDatePicker
+                  value={fromDate}
+                  onChange={setFromDate}
+                  placeholder="انتخاب تاریخ شروع"
+                />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">تا تاریخ</label>
-                <div className="relative">
-                  <Calendar className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    type="date"
-                    value={toDate}
-                    onChange={(e) => setToDate(e.target.value)}
-                    className="w-full pr-9 pl-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-surface-800 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 outline-none"
-                  />
-                </div>
+              <div className="relative">
+                <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">تا تاریخ (شمسی)</label>
+                <SimplePersianDatePicker
+                  value={toDate}
+                  onChange={setToDate}
+                  placeholder="انتخاب تاریخ پایان"
+                />
               </div>
             </div>
 
@@ -207,7 +210,7 @@ export default function ReportsPage() {
         </Card>
 
         {/* ═══════ کارت ۲: ورود گروهی ═══════ */}
-        <Card className="p-0 overflow-hidden">
+        <Card className="p-0 overflow-visible">
           <div className="bg-gradient-to-l from-emerald-600 to-emerald-500 px-5 py-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center">
@@ -303,7 +306,7 @@ export default function ReportsPage() {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-slate-900 dark:text-white mb-2">{importResult.message}</p>
 
-              {importResult.success && (
+              {importResult.success && importResult.successCount > 0 && (
                 <div className="flex gap-4 text-sm mb-3">
                   <span className="flex items-center gap-1 text-emerald-700 dark:text-emerald-300">
                     <CheckCircle2 className="w-4 h-4" />

@@ -86,17 +86,26 @@ export const loyaltyAdminService = {
   getRules: () => api.get('/loyalty/rules'),
   createRule: (data) => api.post('/loyalty/rules', data),
   updateRule: (id, data) => api.patch(`/loyalty/rules/${id}`, data),
+  deleteRule: (id) => api.delete(`/loyalty/rules/${id}`), 
   getRewards: (params = {}) => api.get('/loyalty/rewards', { params }),
   createReward: (data) => api.post('/loyalty/rewards', data),
   updateReward: (id, data) => api.patch(`/loyalty/rewards/${id}`, data),
+  deleteReward: (id) => api.delete(`/loyalty/rewards/${id}`),
   getRedemptions: (params = {}) => api.get('/loyalty/redemptions', { params }),
   updateRedemption: (id, data) => api.patch(`/loyalty/redemptions/${id}/status`, data),
   getMissions: () => api.get('/loyalty/missions'),
   createMission: (data) => api.post('/loyalty/missions', data),
   updateMission: (id, data) => api.patch(`/loyalty/missions/${id}`, data),
+  deleteMission: (id) => api.delete(`/loyalty/missions/${id}`), 
   getSegments: () => api.get('/loyalty/segments'),
   createSegment: (data) => api.post('/loyalty/segments', data),
+  updateSegment: (id, data) => api.patch(`/loyalty/segments/${id}`, data),
+  deleteSegment: (id) => api.delete(`/loyalty/segments/${id}`),
   getTransactions: (params = {}) => api.get('/loyalty/transactions', { params }),
+  exportLedger: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return api.get(`/loyalty/transactions/export?${query}`, { responseType: 'blob' });
+  },
   getOffers: () => api.get('/loyalty/offers'),
 };
 
@@ -138,6 +147,8 @@ export const leadService = {
   list: (params = {}) => api.get('/leads', { params }),
   getById: (id) => api.get(`/leads/${id}`),
   create: (data) => api.post('/leads', data),
+  update: (id, data) => api.patch(`/leads/${id}`, data),        // ← جدید: ادیت کامل سرنخ
+  remove: (id) => api.delete(`/leads/${id}`),                   // ← جدید: حذف سرنخ
   updateStage: (id, data) => api.patch(`/leads/${id}/stage`, data),
   assign: (id, assignedToId) => api.patch(`/leads/${id}/assign`, { assignedToId }),
   getPipelineStats: () => api.get('/leads/stats/pipeline'),
@@ -160,12 +171,17 @@ export const projectService = {
 export const customerService = {
   list: (params = {}) => api.get('/customers', { params }).catch(() => ({ data: { items: [] } })),
   getById: (id) => api.get(`/customers/${id}`).catch(() => ({ data: null })),
+  create: (data) => api.post('/customers', data),  // ← این رو اضافه کن
+  update: (id, data) => api.patch(`/customers/${id}`, data),
+  remove: (id) => api.delete(`/customers/${id}`),
 };
 
 export const invoiceService = {
   list: (params = {}) => api.get('/invoices', { params }),
   getById: (id) => api.get(`/invoices/${id}`),
   create: (data) => api.post('/invoices', data),
+  update: (id, data) => api.patch(`/invoices/${id}`, data),
+  remove: (id) => api.delete(`/invoices/${id}`),
   getStats: () => api.get('/invoices/stats'),
 };
 
@@ -219,6 +235,7 @@ export const pushService = {
 export const userService = {
   list: (params = {}) => api.get('/users', { params }),
   getById: (id) => api.get(`/users/${id}`),
+  create: (data) => api.post('/auth/register', data),
   updateStatus: (id, status) => api.patch(`/users/${id}/status`, { status }),
   remove: (id) => api.delete(`/users/${id}`),
 };
@@ -232,6 +249,8 @@ export const csatService = {
 export const campaignService = {
   list: (params = {}) => api.get('/campaigns', { params }),
   create: (data) => api.post('/campaigns', data),
+  update: (id, data) => api.put(`/campaigns/${id}`, data),
+  remove: (id) => api.delete(`/campaigns/${id}`),  // ← این رو اضافه کن
 };
 
 export const settingsService = {

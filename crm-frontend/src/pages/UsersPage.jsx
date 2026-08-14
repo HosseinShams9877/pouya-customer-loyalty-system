@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Search, UserCog } from 'lucide-react';
+import { Search, UserCog, Plus, X } from 'lucide-react';
 import { userService } from '../api/api';
-import { Spinner, EmptyState, ErrorState, Badge, Card, SkeletonTable } from '../components/common/UI';
+import { Spinner, EmptyState, ErrorState, Badge, Card, SkeletonTable, Button } from '../components/common/UI';
 import { PageHeader } from '../components/common/Breadcrumbs';
 import { cn, formatDate, toFa } from '../utils/ui';
 import { showToast } from '../utils/toast';
@@ -9,7 +9,7 @@ import ConfirmDialog from '../components/common/ConfirmDialog';
 
 const ROLE_BADGES = {
   ADMIN:     { label: 'مدیر',  color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300', dot: 'bg-purple-500' },
-  SALES_REP: { label: 'فروش', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300', dot: 'bg-blue-500' },
+  SALES_REP: { label: 'کارشناس فروش', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300', dot: 'bg-blue-500' },
 };
 
 const STATUS_BADGES = {
@@ -17,6 +17,160 @@ const STATUS_BADGES = {
   INACTIVE: { label: 'غیرفعال', color: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300', dot: 'bg-red-500' },
 };
 
+// ─── مودال افزودن کاربر ───
+function AddUserModal({ open, onClose, onAdded }) {
+  const [loading, setLoading] = useState(false);
+  const [form, setForm] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    mobile: '',
+    password: '',
+    role: 'SALES_REP',
+  });
+
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.firstName || !form.lastName || !form.email || !form.password) {
+      showToast('لطفاً تمام فیلدهای ضروری را پر کنید', 'error');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await userService.create(form);
+      showToast('کاربر با موفقیت اضافه شد');
+      onAdded();
+      onClose();
+      setForm({ firstName: '', lastName: '', email: '', mobile: '', password: '', role: 'SALES_REP' });
+    } catch (err) {
+      showToast(err?.message || 'خطا در افزودن کاربر', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
+      <div className="bg-white dark:bg-surface-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-slate-700">
+          <h2 className="text-lg font-bold text-slate-900 dark:text-white">افزودن کاربر جدید</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">نام *</label>
+              <input
+                type="text"
+                name="firstName"
+                value={form.firstName}
+                onChange={handleChange}
+                className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-surface-800 text-sm focus:ring-2 focus:ring-brand-500/30 outline-none text-slate-900 dark:text-white"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">نام خانوادگی *</label>
+              <input
+                type="text"
+                name="lastName"
+                value={form.lastName}
+                onChange={handleChange}
+                className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-surface-800 text-sm focus:ring-2 focus:ring-brand-500/30 outline-none text-slate-900 dark:text-white"
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">ایمیل *</label>
+            <input
+              type="email"
+              name="email"
+              value={form.email}
+              onChange={handleChange}
+              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-surface-800 text-sm focus:ring-2 focus:ring-brand-500/30 outline-none text-slate-900 dark:text-white"
+              dir="ltr"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">موبایل</label>
+            <input
+              type="text"
+              name="mobile"
+              value={form.mobile}
+              onChange={handleChange}
+              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-surface-800 text-sm focus:ring-2 focus:ring-brand-500/30 outline-none text-slate-900 dark:text-white"
+              dir="ltr"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">رمز عبور *</label>
+            <input
+              type="password"
+              name="password"
+              value={form.password}
+              onChange={handleChange}
+              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-surface-800 text-sm focus:ring-2 focus:ring-brand-500/30 outline-none text-slate-900 dark:text-white"
+              dir="ltr"
+              required
+              minLength={6}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">نقش *</label>
+            <select
+              name="role"
+              value={form.role}
+              onChange={handleChange}
+              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-surface-800 text-sm focus:ring-2 focus:ring-brand-500/30 outline-none text-slate-900 dark:text-white"
+              required
+            >
+              <option value="SALES_REP">کارشناس فروش</option>
+              <option value="ADMIN">مدیر</option>
+            </select>
+          </div>
+
+          {/* Footer */}
+          <div className="flex gap-3 pt-4 border-t border-slate-100 dark:border-slate-700">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+            >
+              انصراف
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {loading ? 'در حال ثبت...' : 'افزودن کاربر'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── صفحه اصلی ───
 export default function UsersPage() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -25,6 +179,7 @@ export default function UsersPage() {
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [confirmTarget, setConfirmTarget] = useState(null);
+  const [addModalOpen, setAddModalOpen] = useState(false);
 
   const fetch = useCallback(async () => {
     setLoading(true);
@@ -34,7 +189,8 @@ export default function UsersPage() {
       if (roleFilter) params.role = roleFilter;
       if (statusFilter) params.status = statusFilter;
       const r = await userService.list(params);
-      setUsers(r?.data?.items || []);
+      const usersData = Array.isArray(r?.data) ? r.data : r?.data?.items || [];
+      setUsers(usersData);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -69,6 +225,11 @@ export default function UsersPage() {
         title="مدیریت کاربران"
         subtitle="لیست کاربران و مدیریت دسترسی‌ها"
         icon={UserCog}
+        actions={
+          <Button onClick={() => setAddModalOpen(true)} icon={Plus}>
+            افزودن کاربر
+          </Button>
+        }
       />
 
       <Card className="p-4">
@@ -90,7 +251,7 @@ export default function UsersPage() {
             >
               <option value="">همه نقش‌ها</option>
               <option value="ADMIN">مدیر</option>
-              <option value="SALES_REP">فروش</option>
+              <option value="SALES_REP">کارشناس فروش</option>
             </select>
             <select
               value={statusFilter}
@@ -135,7 +296,7 @@ export default function UsersPage() {
                     <tr key={u.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                       <td className="px-4 py-3 font-medium text-slate-900 dark:text-white">{u.firstName} {u.lastName}</td>
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-300" dir="ltr">{u.email}</td>
-                      <td className="px-4 py-3 text-slate-600 dark:text-slate-300" dir="ltr">{u.mobile}</td>
+                      <td className="px-4 py-3 text-slate-600 dark:text-slate-300" dir="ltr">{u.mobile || '—'}</td>
                       <td className="px-4 py-3"><Badge color={rc.color} dot={rc.dot}>{rc.label}</Badge></td>
                       <td className="px-4 py-3"><Badge color={sc.color} dot={sc.dot}>{sc.label}</Badge></td>
                       <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{formatDate(u.createdAt)}</td>
@@ -161,6 +322,14 @@ export default function UsersPage() {
         </div>
       )}
 
+      {/* مودال افزودن کاربر */}
+      <AddUserModal
+        open={addModalOpen}
+        onClose={() => setAddModalOpen(false)}
+        onAdded={fetch}
+      />
+
+      {/* دیالوگ تایید */}
       <ConfirmDialog
         open={!!confirmTarget}
         title={confirmTarget?.status === 'ACTIVE' ? 'غیرفعال‌سازی کاربر' : 'فعال‌سازی کاربر'}

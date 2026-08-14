@@ -119,9 +119,16 @@ router.post('/rules', managerOnly, async (req, res) => {
   if (!code || !title || !eventType || !action.type) return res.status(400).json({ success: false, message: 'اطلاعات قانون کامل نیست' });
   const data = await prisma.loyaltyRule.create({
     data: {
-      code: cleanText(code, 48).toUpperCase(), title: cleanText(title, 120), description: cleanText(description, 500) || null,
-      eventType: cleanText(eventType, 48), conditions, action, priority: Number(priority) || 100, stackable: Boolean(stackable),
-      startsAt: startsAt ? new Date(startsAt) : null, endsAt: endsAt ? new Date(endsAt) : null,
+      code: cleanText(code, 48).toUpperCase(),
+      title: cleanText(title, 120),
+      description: cleanText(description, 500) || null,
+      eventType: cleanText(eventType, 48),
+      conditions: JSON.stringify(conditions),   // ← تبدیل به String
+      action: JSON.stringify(action),           // ← تبدیل به String
+      priority: Number(priority) || 100,
+      stackable: Boolean(stackable),
+      startsAt: startsAt ? new Date(startsAt) : null,
+      endsAt: endsAt ? new Date(endsAt) : null,
     },
   });
   return res.status(201).json({ success: true, data });
@@ -129,11 +136,21 @@ router.post('/rules', managerOnly, async (req, res) => {
 
 router.patch('/rules/:id', managerOnly, async (req, res) => {
   const allowed = ['title', 'description', 'eventType', 'conditions', 'action', 'priority', 'stackable', 'isActive', 'startsAt', 'endsAt'];
-  const data = Object.fromEntries(Object.entries(req.body).filter(([key]) => allowed.includes(key)));
+  
+  // تبدیل conditions و action به JSON String
+  const rawData = Object.fromEntries(Object.entries(req.body).filter(([key]) => allowed.includes(key)));
+  const data = {};
+  for (const [key, value] of Object.entries(rawData)) {
+    if (key === 'conditions' || key === 'action') {
+      data[key] = typeof value === 'string' ? value : JSON.stringify(value);
+    } else {
+      data[key] = value;
+    }
+  }
+  
   const result = await prisma.loyaltyRule.update({ where: { id: req.params.id }, data });
   return res.json({ success: true, data: result });
 });
-
 router.get('/rewards', async (req, res) => {
   const where = req.query.active === 'true' ? { isActive: true } : {};
   const data = await prisma.reward.findMany({ where, include: { eligibleTier: true, _count: { select: { redemptions: true } } }, orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }] });
@@ -243,7 +260,20 @@ router.get('/segments', async (_req, res) => {
 router.post('/segments', managerOnly, async (req, res) => {
   const { code, title, description, color, criteria = {}, isDynamic = true } = req.body;
   if (!code || !title) return res.status(400).json({ success: false, message: 'کد و عنوان بخش الزامی است' });
-  const data = await prisma.loyaltySegment.create({ data: { code: cleanText(code, 48).toUpperCase(), title: cleanText(title, 120), description: cleanText(description, 500) || null, color: cleanText(color, 16) || '#0EA5E9', criteria, isDynamic: Boolean(isDynamic) } });
+  
+  // 🔄 تبدیل criteria به JSON String
+  const criteriaJson = typeof criteria === 'string' ? criteria : JSON.stringify(criteria);
+  
+  const data = await prisma.loyaltySegment.create({
+    data: {
+      code: cleanText(code, 48).toUpperCase(),
+      title: cleanText(title, 120),
+      description: cleanText(description, 500) || null,
+      color: cleanText(color, 16) || '#0EA5E9',
+      criteria: criteriaJson,  // ← ✅ درست! String هست
+      isDynamic: Boolean(isDynamic),
+    },
+  });
   return res.status(201).json({ success: true, data });
 });
 
@@ -258,4 +288,371 @@ router.get('/offers', async (_req, res) => {
   return res.json({ success: true, data });
 });
 
+// ============================================
+// POST /customers/:id/adjust — اصلاح امتیاز مشتری
+// ============================================
+router.post('/customers/:id/adjust', managerOnly, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { points, description } = req.body;
+
+    // اعتبارسنجی
+    if (points === undefined || points === null || Number(points) === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'تعداد امتیاز معتبر وارد کنید (مثبت یا منفی)'
+      });
+    }
+
+    const pointsNum = Number(points);
+    if (!Number.isInteger(pointsNum)) {
+      return res.status(400).json({
+        success: false,
+        message: 'تعداد امتیاز باید عدد صحیح باشد'
+      });
+    }
+
+    // پیدا کردن مشتری
+    const customer = await prisma.customer.findUnique({
+      where: { id },
+    });
+
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        message: 'مشتری یافت نشد'
+      });
+    }
+
+    // محاسبه امتیاز جدید
+    const newTotalPoints = Math.max(0, customer.totalPoints + pointsNum);
+    const newLifetimePoints = pointsNum > 0 
+      ? customer.lifetimePoints + pointsNum 
+      : customer.lifetimePoints;
+
+    // بروزرسانی در تراکنش
+    const result = await prisma.$transaction(async (tx) => {
+      // بروزرسانی مشتری
+      const updated = await tx.customer.update({
+        where: { id },
+        data: {
+          totalPoints: newTotalPoints,
+          lifetimePoints: newLifetimePoints,
+          lastActivityAt: new Date(),
+        },
+      });
+
+      // ثبت تراکنش امتیاز
+      await tx.pointTransaction.create({
+        data: {
+          customerId: id,
+          type: 'ADJUST',
+          sourceType: 'MANUAL',
+          points: pointsNum,
+          remainingPoints: pointsNum > 0 ? pointsNum : 0,
+          balanceAfter: newTotalPoints,
+          description: description || (pointsNum > 0 ? 'افزایش دستی امتیاز' : 'کاهش دستی امتیاز'),
+          actorUserId: req.user.id,
+          createdAt: new Date(),
+        },
+      });
+
+      return updated;
+    });
+
+    return res.json({
+      success: true,
+      message: pointsNum > 0 
+        ? `${pointsNum} امتیاز با موفقیت اضافه شد` 
+        : `${Math.abs(pointsNum)} امتیاز با موفقیت کسر شد`,
+      data: {
+        customer: result,
+        adjustedPoints: pointsNum,
+        newBalance: result.totalPoints,
+      },
+    });
+  } catch (error) {
+    console.error('[loyalty/adjust-points] خطا:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'خطا در اصلاح امتیاز'
+    });
+  }
+});
+// ============================================
+// DELETE /rewards/:id — حذف پاداش
+// ============================================
+router.delete('/rewards/:id', managerOnly, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // چک کردن وجود پاداش
+    const existing = await prisma.reward.findUnique({
+      where: { id },
+      include: {
+        redemptions: {
+          where: { status: { not: 'CANCELLED' } },
+        },
+      },
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        message: 'پاداش یافت نشد',
+      });
+    }
+
+    // بررسی اینکه پاداش درخواست فعال نداشته باشه
+    if (existing.redemptions.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'این پاداش دارای درخواست‌های فعال است و قابل حذف نیست',
+      });
+    }
+
+    // حذف پاداش
+    await prisma.reward.delete({
+      where: { id },
+    });
+
+    return res.json({
+      success: true,
+      message: 'پاداش با موفقیت حذف شد',
+    });
+  } catch (error) {
+    console.error('[loyalty/rewards/delete] خطا:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'خطا در حذف پاداش',
+    });
+  }
+});
+// ============================================
+// DELETE /rules/:id — حذف قانون
+// ============================================
+router.delete('/rules/:id', managerOnly, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // چک کردن وجود قانون
+    const existing = await prisma.loyaltyRule.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        message: 'قانون یافت نشد',
+      });
+    }
+
+    // حذف قانون
+    await prisma.loyaltyRule.delete({
+      where: { id },
+    });
+
+    return res.json({
+      success: true,
+      message: 'قانون با موفقیت حذف شد',
+    });
+  } catch (error) {
+    console.error('[loyalty/rules/delete] خطا:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'خطا در حذف قانون',
+    });
+  }
+});
+// ============================================
+// DELETE /missions/:id — حذف مأموریت
+// ============================================
+router.delete('/missions/:id', managerOnly, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // چک کردن وجود مأموریت
+    const existing = await prisma.mission.findUnique({
+      where: { id },
+      include: {
+        participants: {
+          take: 1,
+        },
+      },
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        message: 'مأموریت یافت نشد',
+      });
+    }
+
+    // اگر مأموریت دارای مشارکت فعال باشه، اجازه حذف نده
+    if (existing.participants.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'این مأموریت دارای مشارکت فعال است و قابل حذف نیست',
+      });
+    }
+
+    // حذف مأموریت
+    await prisma.mission.delete({
+      where: { id },
+    });
+
+    return res.json({
+      success: true,
+      message: 'مأموریت با موفقیت حذف شد',
+    });
+  } catch (error) {
+    console.error('[loyalty/missions/delete] خطا:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'خطا در حذف مأموریت',
+    });
+  }
+});
+// ============================================
+// DELETE /segments/:id — حذف بخش
+// ============================================
+router.delete('/segments/:id', managerOnly, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // چک کردن وجود بخش
+    const existing = await prisma.loyaltySegment.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        message: 'بخش یافت نشد',
+      });
+    }
+
+    // حذف بخش
+    await prisma.loyaltySegment.delete({
+      where: { id },
+    });
+
+    return res.json({
+      success: true,
+      message: 'بخش با موفقیت حذف شد',
+    });
+  } catch (error) {
+    console.error('[loyalty/segments/delete] خطا:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'خطا در حذف بخش',
+    });
+  }
+});
+// ============================================
+// PATCH /segments/:id — ویرایش بخش
+// ============================================
+router.patch('/segments/:id', managerOnly, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const allowed = ['title', 'description', 'color', 'criteria', 'isDynamic', 'isActive'];
+    const data = {};
+    
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) {
+        if (key === 'criteria') {
+          // 🔄 تبدیل criteria به JSON String
+          data[key] = typeof req.body[key] === 'string' 
+            ? req.body[key] 
+            : JSON.stringify(req.body[key]);
+        } else {
+          data[key] = req.body[key];
+        }
+      }
+    }
+
+    const existing = await prisma.loyaltySegment.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'بخش یافت نشد' });
+    }
+
+    const result = await prisma.loyaltySegment.update({
+      where: { id },
+      data,
+    });
+
+    return res.json({
+      success: true,
+      data: result,
+      message: 'بخش با موفقیت ویرایش شد',
+    });
+  } catch (error) {
+    console.error('[loyalty/segments/update] خطا:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'خطا در ویرایش بخش',
+    });
+  }
+});
+// ============================================
+// GET /transactions/export — خروجی اکسل دفتر کل
+// ============================================
+router.get('/transactions/export', managerOnly, async (req, res) => {
+  try {
+    const ExcelJS = require('exceljs');
+    const where = req.query.customerId ? { customerId: req.query.customerId } : {};
+    
+    const transactions = await prisma.pointTransaction.findMany({
+      where,
+      include: {
+        customer: {
+          select: { id: true, fullName: true, mobile: true, company: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('دفتر کل امتیاز');
+
+    // تعریف ستون‌ها
+    worksheet.columns = [
+      { header: 'شناسه', key: 'id', width: 25 },
+      { header: 'نوع', key: 'type', width: 15 },
+      { header: 'مشتری', key: 'customer', width: 25 },
+      { header: 'موبایل', key: 'mobile', width: 15 },
+      { header: 'شرکت', key: 'company', width: 20 },
+      { header: 'شرح', key: 'description', width: 40 },
+      { header: 'منبع', key: 'sourceType', width: 20 },
+      { header: 'تغییر', key: 'points', width: 15 },
+      { header: 'مانده بعد', key: 'balanceAfter', width: 15 },
+      { header: 'تاریخ', key: 'createdAt', width: 20 },
+    ];
+
+    // اضافه کردن ردیف‌ها
+    for (const t of transactions) {
+      worksheet.addRow({
+        id: t.id,
+        type: t.type === 'EARN' ? 'کسب' : t.type === 'REDEEM' ? 'مصرف' : t.type === 'ADJUST' ? 'اصلاح' : t.type === 'EXPIRE' ? 'انقضا' : 'برگشت',
+        customer: t.customer?.fullName || '—',
+        mobile: t.customer?.mobile || '—',
+        company: t.customer?.company || '—',
+        description: t.description || '',
+        sourceType: t.sourceType || 'MANUAL',
+        points: t.points,
+        balanceAfter: t.balanceAfter,
+        createdAt: t.createdAt.toLocaleDateString('fa-IR'),
+      });
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=ledger-export.xlsx');
+    res.send(buffer);
+  } catch (error) {
+    console.error('[loyalty/transactions/export] خطا:', error);
+    res.status(500).json({ success: false, message: error.message || 'خطا در خروجی اکسل' });
+  }
+});
 module.exports = router;

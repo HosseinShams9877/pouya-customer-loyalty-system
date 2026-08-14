@@ -115,4 +115,133 @@ router.post('/', async (req, res) => {
   }
 });
 
+// ============================================
+// PATCH /:id — ویرایش فاکتور
+// ============================================
+router.patch('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { 
+      invoiceNumber, 
+      customerId, 
+      amount, 
+      paymentType, 
+      paymentStatus, 
+      paymentDate, 
+      delayDays,
+      source 
+    } = req.body;
+
+    // چک کردن وجود فاکتور
+    const existing = await prisma.invoice.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'فاکتور یافت نشد' });
+    }
+
+    // چک کردن یکتا بودن شماره فاکتور (اگه تغییر کرده)
+    if (invoiceNumber && invoiceNumber !== existing.invoiceNumber) {
+      const duplicate = await prisma.invoice.findUnique({
+        where: { invoiceNumber: String(invoiceNumber).trim() },
+      });
+      if (duplicate) {
+        return res.status(409).json({ success: false, message: 'شماره فاکتور قبلاً ثبت شده است' });
+      }
+    }
+
+    // ساخت دیتای بروزرسانی
+    const data = {};
+    if (invoiceNumber !== undefined) data.invoiceNumber = String(invoiceNumber).trim();
+    if (customerId !== undefined) data.customerId = customerId;
+    if (amount !== undefined) {
+      const parsedAmount = parseBigIntFields({ amount }, ['amount']).amount;
+      if (parsedAmount <= 0n) {
+        return res.status(400).json({ success: false, message: 'مبلغ باید بیشتر از صفر باشد' });
+      }
+      data.amount = parsedAmount;
+    }
+    if (paymentType !== undefined) {
+      if (!['CASH', 'CREDIT'].includes(paymentType)) {
+        return res.status(400).json({ success: false, message: 'نوع پرداخت نامعتبر است' });
+      }
+      data.paymentType = paymentType;
+    }
+    if (paymentStatus !== undefined) {
+      if (!['PAID', 'PENDING', 'OVERDUE'].includes(paymentStatus)) {
+        return res.status(400).json({ success: false, message: 'وضعیت پرداخت نامعتبر است' });
+      }
+      data.paymentStatus = paymentStatus;
+      if (paymentStatus === 'PAID') {
+        data.paymentDate = paymentDate ? new Date(paymentDate) : new Date();
+      } else {
+        data.paymentDate = null;
+      }
+    }
+    if (delayDays !== undefined) data.delayDays = Math.max(0, Number(delayDays) || 0);
+    if (source !== undefined) data.source = source;
+
+    // بروزرسانی فاکتور
+    const invoice = await prisma.invoice.update({
+      where: { id },
+      data,
+      include: { customer: true },
+    });
+
+    // محاسبه مجدد امتیاز (اختیاری)
+    // اگه paymentType یا paymentStatus تغییر کرده، امتیاز رو دوباره محاسبه کن
+    if (paymentType !== undefined || paymentStatus !== undefined || amount !== undefined) {
+      const purchasePoints = Math.floor(Number(invoice.amount) / 1000000);
+      let bonusPoints = 0;
+      if (invoice.paymentType === 'CASH') bonusPoints += 50;
+      if (invoice.paymentStatus === 'PAID' && invoice.delayDays === 0) bonusPoints += 20;
+      const totalPoints = purchasePoints + bonusPoints;
+
+      await prisma.invoice.update({
+        where: { id },
+        data: {
+          loyaltyPointsEarned: totalPoints,
+          loyaltyProcessedAt: new Date(),
+        },
+      });
+
+      // بروزرسانی امتیاز مشتری (باید محاسبه بشه)
+      // اینجا می‌تونی منطق بروزرسانی امتیاز مشتری رو هم اضافه کنی
+    }
+
+    res.json({
+      success: true,
+      message: 'فاکتور با موفقیت ویرایش شد',
+      data: invoice,
+    });
+  } catch (error) {
+    console.error('[invoices/update] خطا:', error);
+    res.status(500).json({ success: false, message: error.message || 'خطا در ویرایش فاکتور' });
+  }
+});
+
+// ============================================
+// DELETE /:id — حذف فاکتور
+// ============================================
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // چک کردن وجود فاکتور
+    const existing = await prisma.invoice.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'فاکتور یافت نشد' });
+    }
+
+    // حذف فاکتور
+    await prisma.invoice.delete({ where: { id } });
+
+    res.json({
+      success: true,
+      message: 'فاکتور با موفقیت حذف شد',
+    });
+  } catch (error) {
+    console.error('[invoices/delete] خطا:', error);
+    res.status(500).json({ success: false, message: error.message || 'خطا در حذف فاکتور' });
+  }
+});
+
 module.exports = router;

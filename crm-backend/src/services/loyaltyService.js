@@ -167,10 +167,8 @@ async function processInvoice(tx, invoice, customer) {
     return { totalPoints: invoice.loyaltyPointsEarned, walletCredit: 0n, alreadyProcessed: true };
   }
 
-  const [settings, rules] = await Promise.all([
-    settingsService.getLoyaltyRules(tx),
-    activeRules(tx),
-  ]);
+  const settings = await settingsService.getLoyaltyRules(tx);
+  const rules = await activeRules(tx);
   const tier = customer.tierId
     ? await tx.loyaltyTier.findUnique({ where: { id: customer.tierId } })
     : null;
@@ -218,10 +216,10 @@ async function processInvoice(tx, invoice, customer) {
         balanceAfter: newPointBalance,
         description: `امتیاز فاکتور ${invoice.invoiceNumber}`,
         expiresAt,
-        metadata: {
+        metadata: JSON.stringify({
           multiplier: result.multiplier,
           entries: result.entries,
-        },
+        })
       },
     });
   }
