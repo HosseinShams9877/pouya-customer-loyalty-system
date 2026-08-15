@@ -216,6 +216,7 @@ export const feedbackService = {
   stats: () => api.get('/feedback/stats'),
   create: (data) => api.post('/feedback', data),
   update: (id, data) => api.patch(`/feedback/${id}`, data),
+  remove: (id) => api.delete(`/feedback/${id}`),
 };
 
 export const notificationService = {
