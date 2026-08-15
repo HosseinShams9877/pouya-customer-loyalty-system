@@ -4,10 +4,14 @@ const { parseBigIntFields } = require('../lib/bigint');
 const { requireAuth } = require('../middleware/auth');
 const loyaltyService = require('../services/loyaltyService');
 const communicationService = require('../services/communicationService');
+const notificationService = require('../services/notificationService');
 
 const router = express.Router();
 router.use(requireAuth);
 
+// ════════════════════════════════════════════
+// GET /stats
+// ════════════════════════════════════════════
 router.get('/stats', async (_req, res) => {
   try {
     const [total, paid, pending, overdue, points] = await Promise.all([
@@ -34,6 +38,9 @@ router.get('/stats', async (_req, res) => {
   }
 });
 
+// ════════════════════════════════════════════
+// GET /
+// ════════════════════════════════════════════
 router.get('/', async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query.page) || 1);
@@ -64,12 +71,18 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ════════════════════════════════════════════
+// GET /:id
+// ════════════════════════════════════════════
 router.get('/:id', async (req, res) => {
   const data = await prisma.invoice.findUnique({ where: { id: req.params.id }, include: { customer: true, coupon: { include: { offer: true } } } });
   if (!data) return res.status(404).json({ success: false, message: 'فاکتور یافت نشد' });
   return res.json({ success: true, data });
 });
 
+// ════════════════════════════════════════════
+// POST / — Create invoice
+// ════════════════════════════════════════════
 router.post('/', async (req, res) => {
   try {
     const { invoiceNumber, customerId, paymentType = 'CREDIT', paymentStatus = 'PENDING', source = 'MANUAL', paymentDate, delayDays = 0 } = req.body;
@@ -81,6 +94,7 @@ router.post('/', async (req, res) => {
     }
     const amount = parseBigIntFields({ amount: req.body.amount }, ['amount']).amount;
     if (amount <= 0n) return res.status(400).json({ success: false, message: 'مبلغ باید بیشتر از صفر باشد' });
+    
     const result = await prisma.$transaction(async (tx) => {
       const customer = await tx.customer.findUnique({ where: { id: customerId } });
       if (!customer) throw new Error('مشتری یافت نشد');
@@ -88,8 +102,13 @@ router.post('/', async (req, res) => {
       if (duplicate) throw new Error('شماره فاکتور قبلاً ثبت شده است');
       const invoice = await tx.invoice.create({
         data: {
-          invoiceNumber: String(invoiceNumber).trim(), customerId, amount, paymentType, paymentStatus,
-          source, delayDays: Math.max(0, Number(delayDays) || 0),
+          invoiceNumber: String(invoiceNumber).trim(),
+          customerId,
+          amount,
+          paymentType,
+          paymentStatus,
+          source,
+          delayDays: Math.max(0, Number(delayDays) || 0),
           paymentDate: paymentStatus === 'PAID' ? (paymentDate ? new Date(paymentDate) : new Date()) : null,
         },
       });
@@ -97,14 +116,59 @@ router.post('/', async (req, res) => {
       const saved = await tx.invoice.findUnique({ where: { id: invoice.id }, include: { customer: true } });
       return { invoice: saved, loyalty };
     });
-    // پیامک تراکنشی پس از commit ارسال می‌شود تا خطای سرویس پیامک، ثبت فاکتور را برنگرداند.
+
+    // ─── 🔔 نوتیفیکیشن ───
+    const customerForNotif = await prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { assignedToId: true, fullName: true },
+    });
+
+    const admins = await prisma.user.findMany({
+      where: { role: 'ADMIN', status: 'ACTIVE' },
+      select: { id: true },
+    });
+
+    const sentUserIds = new Set();
+
+    // 1. به کاربر تخصیص‌داده‌شده (اگه وجود داشته باشه)
+    if (customerForNotif?.assignedToId) {
+      await notificationService.create({
+        type: notificationService.NOTIFICATION_TYPES.INVOICE_CREATED,
+        title: '📄 فاکتور جدید',
+        message: `فاکتور #${invoiceNumber} به مبلغ ${Number(amount).toLocaleString('fa-IR')} ریال برای مشتری "${customerForNotif.fullName}" ثبت شد`,
+        link: `/invoices/${result.invoice.id}`,
+        userId: customerForNotif.assignedToId,
+        data: { invoiceId: result.invoice.id, invoiceNumber, amount: Number(amount) },
+      });
+      sentUserIds.add(customerForNotif.assignedToId);
+    }
+
+    // 2. به ادمین‌ها (فقط اونایی که قبلاً نوتیفیکیشن نگرفتن)
+    for (const admin of admins) {
+      if (sentUserIds.has(admin.id)) continue;
+      
+      await notificationService.create({
+        type: notificationService.NOTIFICATION_TYPES.INVOICE_CREATED,
+        title: '📄 فاکتور جدید ثبت شد',
+        message: `فاکتور #${invoiceNumber} به مبلغ ${Number(amount).toLocaleString('fa-IR')} ریال توسط ${req.user.firstName} ${req.user.lastName} ثبت شد`,
+        link: `/invoices/${result.invoice.id}`,
+        userId: admin.id,
+        data: { invoiceId: result.invoice.id, invoiceNumber, amount: Number(amount) },
+      });
+    }
+
     const sms = await communicationService.sendInvoicePointsSms({
       invoice: result.invoice,
       customer: result.invoice.customer,
       points: result.loyalty.totalPoints,
       walletCredit: result.loyalty.walletCredit,
     }).catch((smsError) => ({ success: false, error: smsError.message }));
-    return res.status(201).json({ success: true, message: 'فاکتور، مزایای وفاداری و اعلان امتیاز ثبت شد', data: { ...result, communication: sms } });
+
+    return res.status(201).json({
+      success: true,
+      message: 'فاکتور، مزایای وفاداری و اعلان امتیاز ثبت شد',
+      data: { ...result, communication: sms },
+    });
   } catch (error) {
     const expected = ['مشتری یافت نشد', 'شماره فاکتور قبلاً ثبت شده است'];
     if (expected.includes(error.message) || error instanceof TypeError) {
@@ -115,30 +179,19 @@ router.post('/', async (req, res) => {
   }
 });
 
-// ============================================
+// ════════════════════════════════════════════
 // PATCH /:id — ویرایش فاکتور
-// ============================================
+// ════════════════════════════════════════════
 router.patch('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { 
-      invoiceNumber, 
-      customerId, 
-      amount, 
-      paymentType, 
-      paymentStatus, 
-      paymentDate, 
-      delayDays,
-      source 
-    } = req.body;
+    const { invoiceNumber, customerId, amount, paymentType, paymentStatus, paymentDate, delayDays, source } = req.body;
 
-    // چک کردن وجود فاکتور
     const existing = await prisma.invoice.findUnique({ where: { id } });
     if (!existing) {
       return res.status(404).json({ success: false, message: 'فاکتور یافت نشد' });
     }
 
-    // چک کردن یکتا بودن شماره فاکتور (اگه تغییر کرده)
     if (invoiceNumber && invoiceNumber !== existing.invoiceNumber) {
       const duplicate = await prisma.invoice.findUnique({
         where: { invoiceNumber: String(invoiceNumber).trim() },
@@ -148,7 +201,6 @@ router.patch('/:id', async (req, res) => {
       }
     }
 
-    // ساخت دیتای بروزرسانی
     const data = {};
     if (invoiceNumber !== undefined) data.invoiceNumber = String(invoiceNumber).trim();
     if (customerId !== undefined) data.customerId = customerId;
@@ -179,15 +231,12 @@ router.patch('/:id', async (req, res) => {
     if (delayDays !== undefined) data.delayDays = Math.max(0, Number(delayDays) || 0);
     if (source !== undefined) data.source = source;
 
-    // بروزرسانی فاکتور
     const invoice = await prisma.invoice.update({
       where: { id },
       data,
       include: { customer: true },
     });
 
-    // محاسبه مجدد امتیاز (اختیاری)
-    // اگه paymentType یا paymentStatus تغییر کرده، امتیاز رو دوباره محاسبه کن
     if (paymentType !== undefined || paymentStatus !== undefined || amount !== undefined) {
       const purchasePoints = Math.floor(Number(invoice.amount) / 1000000);
       let bonusPoints = 0;
@@ -202,9 +251,6 @@ router.patch('/:id', async (req, res) => {
           loyaltyProcessedAt: new Date(),
         },
       });
-
-      // بروزرسانی امتیاز مشتری (باید محاسبه بشه)
-      // اینجا می‌تونی منطق بروزرسانی امتیاز مشتری رو هم اضافه کنی
     }
 
     res.json({
@@ -218,26 +264,18 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
-// ============================================
+// ════════════════════════════════════════════
 // DELETE /:id — حذف فاکتور
-// ============================================
+// ════════════════════════════════════════════
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-
-    // چک کردن وجود فاکتور
     const existing = await prisma.invoice.findUnique({ where: { id } });
     if (!existing) {
       return res.status(404).json({ success: false, message: 'فاکتور یافت نشد' });
     }
-
-    // حذف فاکتور
     await prisma.invoice.delete({ where: { id } });
-
-    res.json({
-      success: true,
-      message: 'فاکتور با موفقیت حذف شد',
-    });
+    res.json({ success: true, message: 'فاکتور با موفقیت حذف شد' });
   } catch (error) {
     console.error('[invoices/delete] خطا:', error);
     res.status(500).json({ success: false, message: error.message || 'خطا در حذف فاکتور' });
