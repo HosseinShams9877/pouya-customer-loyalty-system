@@ -117,6 +117,7 @@ export const memberService = {
   convertPoints: (points) => api.post('/member/wallet/convert', { points }, { memberAuth: true }),
   rewards: () => api.get('/member/rewards', { memberAuth: true }),
   redeem: (id) => api.post(`/member/rewards/${id}/redeem`, {}, { memberAuth: true }),
+  createFeedback: (data) => api.post('/feedback/member/feedback', data, { memberAuth: true }),
   redemptions: () => api.get('/member/redemptions', { memberAuth: true }),
   missions: () => api.get('/member/missions', { memberAuth: true }),
   claimMission: (id) => api.post(`/member/missions/${id}/claim`, {}, { memberAuth: true }),
@@ -124,6 +125,7 @@ export const memberService = {
   invite: (mobile) => api.post('/member/referrals', { mobile }, { memberAuth: true }),
   purchaseRequests: () => api.get('/member/purchase-requests', { memberAuth: true }),
   createPurchaseRequest: (data) => api.post('/member/purchase-requests', data, { memberAuth: true }),
+  getFeedbacks: () => api.get('/member/feedback', { memberAuth: true }),
 };
 
 export const businessService = {
