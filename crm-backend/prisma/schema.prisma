@@ -148,6 +148,7 @@ model Customer {
   referralsMade         Referral[]                   @relation("ReferralReferrer")
   referralReceived      Referral?                    @relation("ReferralReferred")
   missionProgress       CustomerMission[]
+  customerNotifications CustomerNotification[]
   otpCodes              MemberOtpCode[]
   coupons               LoyaltyCoupon[]
   representativeAccount RepresentativeAccount?
@@ -502,6 +503,25 @@ model Notification {
   @@map("notifications")
 }
 
+
+model CustomerNotification {
+  id         String   @id @default(cuid())
+  customerId String
+  type       String   // CSAT_REQUEST | FEEDBACK_CREATED | REWARD_APPROVED | ...
+  title      String
+  message    String
+  link       String?
+  data       String?  // Json
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, isRead])
+  @@index([customerId, createdAt])
+  @@map("customer_notifications")
+}
 model PushSubscription {
   id         String   @id @default(cuid())
   userId     String
@@ -522,7 +542,8 @@ model PushSubscription {
 model CsatToken {
   id            String   @id @default(cuid())
   customerId    String
-  interactionId String   @unique
+  interactionId String?   @unique  // ← اختیاری
+  feedbackId    String? 
   leadId        String?
   assignedToId  String?
   token         String   @unique
@@ -531,9 +552,10 @@ model CsatToken {
   expiresAt     DateTime
   createdAt     DateTime @default(now())
 
-  customer    Customer    @relation(fields: [customerId], references: [id])
-  interaction Interaction @relation(fields: [interactionId], references: [id])
-
+  customer    Customer          @relation(fields: [customerId], references: [id])
+  interaction Interaction?      @relation(fields: [interactionId], references: [id])  // ← ✅ اختیاری شد
+  feedback    CustomerFeedback? @relation(fields: [feedbackId], references: [id])
+  
   @@index([token])
   @@index([status])
   @@map("csat_tokens")
@@ -647,7 +669,7 @@ model CustomerFeedback {
   updatedAt       DateTime  @updatedAt
 
   customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
-
+  csatTokens CsatToken[]
   @@index([type, status, createdAt])
   @@index([customerId, createdAt])
   @@map("customer_feedback")

@@ -643,6 +643,7 @@ function FeedbackTab() {
       setLoadingHistory(true);
       try {
         const res = await memberService.getFeedbacks();
+        console.log('📦 تاریخچه بازخوردها:', res.data);
         setHistory(res.data || []);
         
         // استخراج نوتیفیکیشن‌های CSAT از تاریخچه
@@ -698,7 +699,6 @@ function FeedbackTab() {
     CLOSED: 'bg-slate-100 text-slate-600',
   };
 
-  // 📣 نوتیفیکیشن‌های CSAT
   const hasCsatNotifications = notifications.length > 0;
 
   return (
@@ -808,8 +808,11 @@ function FeedbackTab() {
           {showHistory && (
             <div className="space-y-2">
               {history.map(item => {
-                const canRate = item.status === 'RESOLVED' && item.csatLink && !item.score;
-                const alreadyRated = item.score && item.score > 0;
+                // ✅ بررسی کامل شرایط
+                const hasCsatLink = item.csatLink && item.csatLink !== null;
+                const hasScore = item.score && item.score > 0;
+                const isResolved = item.status === 'RESOLVED';
+                const canRate = isResolved && hasCsatLink && !hasScore;
 
                 return (
                   <div key={item.id} className="rounded-2xl bg-white border border-slate-200 p-4 hover:shadow-md transition-shadow">
@@ -836,16 +839,16 @@ function FeedbackTab() {
                           href={item.csatLink}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="px-4 py-1.5 rounded-xl bg-violet-100 text-violet-700 text-xs font-bold hover:bg-violet-200 transition-colors flex items-center gap-1"
+                          className="px-4 py-1.5 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 transition-colors flex items-center gap-1"
                         >
+                          <Star className="w-3 h-3 fill-white" />
                           امتیازدهی
-                          <ChevronLeft className="w-3 h-3" />
                         </a>
                       </div>
                     )}
 
                     {/* ✅ نمایش امتیاز ثبت شده */}
-                    {alreadyRated && (
+                    {hasScore && (
                       <div className="mt-3 pt-3 border-t border-slate-100">
                         <span className="text-xs text-emerald-600 flex items-center gap-1">
                           <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
@@ -854,8 +857,8 @@ function FeedbackTab() {
                       </div>
                     )}
 
-                    {/* وضعیت حل شده بدون CSAT */}
-                    {item.status === 'RESOLVED' && !item.csatLink && !alreadyRated && (
+                    {/* وضعیت حل شده بدون CSAT (امتیاز قبلاً داده شده یا لینک منقضی) */}
+                    {isResolved && !hasCsatLink && !hasScore && (
                       <div className="mt-3 pt-3 border-t border-slate-100">
                         <span className="text-xs text-emerald-600 flex items-center gap-1">
                           <CheckCircle2 className="w-3 h-3" />
@@ -868,6 +871,14 @@ function FeedbackTab() {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ✅ اضافه کردن لودینگ برای تاریخچه */}
+      {loadingHistory && (
+        <div className="text-center py-4">
+          <div className="w-6 h-6 border-2 border-slate-200 border-t-violet-500 rounded-full animate-spin mx-auto"/>
+          <p className="text-xs text-slate-400 mt-2">در حال دریافت تاریخچه...</p>
         </div>
       )}
     </>

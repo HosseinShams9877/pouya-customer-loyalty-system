@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
 const notificationService = require('../services/notificationService');
+const customerNotificationService = require('../services/customerNotificationService'); // ✅ جدید
 const smsService = require('../services/smsService');
 
 const router = express.Router();
@@ -17,7 +18,7 @@ const TYPES = ['COMPLAINT', 'SUGGESTION', 'SURVEY', 'CALL_NOTE'];
 const CHANNELS = ['PHONE', 'SMS', 'HEPIKAL', 'WEB', 'IN_PERSON'];
 const PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'CRITICAL'];
 
-// GET / — لیست بازخوردها
+// GET / — لیست بازخوردها (ادمین)
 router.get('/', async (req, res) => {
   try {
     await prisma.customerFeedback.updateMany({
@@ -170,39 +171,118 @@ router.patch('/:id', async (req, res) => {
       include: { customer: true },
     });
 
-    // ─── 🎯 ارسال خودکار CSAT در صورت حل شدن ───
-    if (data.status === 'RESOLVED' && item.customerId) {
-      try {
-        const customer = await prisma.customer.findUnique({
-          where: { id: item.customerId },
-          select: { fullName: true, mobile: true },
-        });
+// ─── 🎯 ارسال خودکار CSAT در صورت حل شدن ───
+if (data.status === 'RESOLVED' && item.customerId) {
+  try {
+    const customer = await prisma.customer.findUnique({
+      where: { id: item.customerId },
+      select: { 
+        fullName: true, 
+        mobile: true,
+      },
+    });
 
-        if (customer?.mobile) {
-          // ایجاد توکن CSAT
-          const csatToken = await prisma.csatToken.create({
-            data: {
-              customerId: item.customerId,
-              interactionId: null,
-              leadId: item.leadId || null,
-              assignedToId: req.user.id,
-              token: crypto.randomUUID(),
-              status: 'PENDING',
-              expiresAt: new Date(Date.now() + 7 * 86400000), // ۷ روز
-            },
-          });
-
-          // ارسال پیامک با لینک CSAT
-          const csatLink = `${process.env.CSAT_BASE_URL || 'http://localhost:3000/csat'}/${csatToken.token}`;
-          const message = `👋 ${customer.fullName} عزیز، مشکل شما حل شد. لطفاً از ۱ تا ۵ به خدمات ما امتیاز دهید:\n${csatLink}`;
-
-          await smsService.sendSMS(customer.mobile, message).catch(() => {});
-          console.log(`[feedback] 📨 لینک CSAT برای ${customer.mobile} ارسال شد`);
-        }
-      } catch (csatError) {
-        console.error('[feedback/csat] خطا:', csatError.message);
-      }
+    if (!customer) {
+      console.log(`[feedback] ❌ مشتری با ID ${item.customerId} یافت نشد`);
+      return;
     }
+
+    if (!customer.mobile) {
+      console.log(`[feedback] ⚠️ مشتری ${customer.fullName} شماره موبایل ندارد`);
+      return;
+    }
+
+    // ✅ 1️⃣ یک Lead موقت برای CSAT ایجاد کن
+    const tempLead = await prisma.lead.create({
+      data: {
+        fullName: `CSAT-${customer.fullName}`,
+        mobile: customer.mobile,
+        stage: 'INQUIRY',
+        customerId: item.customerId,
+        assignedToId: req.user.id,
+        source: 'CSAT',
+        description: `Lead موقت برای درخواست CSAT بازخورد: ${item.subject}`,
+      },
+    });
+
+    console.log(`[feedback] ✅ Lead موقت ایجاد شد: ${tempLead.id}`);
+
+    // ✅ 2️⃣ Interaction رو با leadId معتبر ایجاد کن
+    const newInteraction = await prisma.interaction.create({
+      data: {
+        leadId: tempLead.id,  // ← اینجا leadId معتبر هست
+        type: 'CSAT',
+        description: `درخواست CSAT برای بازخورد: ${item.subject}`,
+        createdAt: new Date(),
+      },
+    });
+
+    console.log(`[feedback] ✅ Interaction ایجاد شد: ${newInteraction.id}`);
+
+    // ✅ 3️⃣ CsatToken رو با interactionId ایجاد کن
+    const csatToken = await prisma.csatToken.create({
+      data: {
+        customerId: item.customerId,
+        feedbackId: item.id,
+        interactionId: newInteraction.id,
+        leadId: item.leadId || null,
+        assignedToId: req.user.id,
+        token: crypto.randomUUID(),
+        status: 'PENDING',
+        expiresAt: new Date(Date.now() + 7 * 86400000),
+      },
+    });
+
+    console.log(`[feedback] ✅ توکن CSAT ایجاد شد: ${csatToken.id}`);
+
+    const csatLink = `${process.env.CSAT_BASE_URL || 'http://localhost:3000/csat'}/${csatToken.token}`;
+    const message = `👋 ${customer.fullName} عزیز، مشکل شما حل شد. لطفاً از ۱ تا ۵ به خدمات ما امتیاز دهید:\n${csatLink}`;
+
+    // 4️⃣ ارسال پیامک
+    await smsService.sendSMS(customer.mobile, message).catch(() => {});
+    console.log(`[feedback] 📨 لینک CSAT برای ${customer.mobile} ارسال شد`);
+
+    // 5️⃣ ثبت نوتیفیکیشن برای مشتری
+    await customerNotificationService.createForCustomer({
+      customerId: item.customerId,
+      type: 'CSAT_REQUEST',
+      title: '⭐ نظر شما برای ما ارزشمند است',
+      message: `بازخورد "${item.subject}" حل شد. لطفاً به خدمات ما امتیاز دهید.`,
+      link: `/csat/${csatToken.token}`,
+      data: {
+        feedbackId: item.id,
+        token: csatToken.token,
+        subject: item.subject,
+        csatLink: csatLink,
+      },
+    });
+    console.log(`[feedback] 📨 نوتیفیکیشن CSAT برای مشتری ${item.customerId} ثبت شد`);
+
+    // 6️⃣ نوتیفیکیشن به ادمین‌ها
+    const admins = await prisma.user.findMany({
+      where: { role: 'ADMIN', status: 'ACTIVE' },
+      select: { id: true },
+    });
+
+    for (const admin of admins) {
+      await notificationService.create({
+        userId: admin.id,
+        type: 'CSAT_SENT',
+        title: '⭐ لینک CSAT ارسال شد',
+        message: `لینک CSAT برای بازخورد "${item.subject}" به مشتری ${customer.fullName} ارسال شد.`,
+        link: `/feedback/${item.id}`,
+        data: {
+          feedbackId: item.id,
+          customerId: item.customerId,
+          token: csatToken.token,
+        },
+      });
+    }
+  } catch (csatError) {
+    console.error('[feedback/csat] ❌ خطا:', csatError.message);
+    console.error('[feedback/csat] 📋 جزئیات:', csatError);
+  }
+}
 
     return res.json({
       success: true,
@@ -219,8 +299,8 @@ router.patch('/:id', async (req, res) => {
 // 🔹 روت‌های عضو (Member)
 // ════════════════════════════════════════════
 
-// GET /member/feedback — تاریخچه بازخوردهای عضو + CSAT
-router.get('/member/feedback', requireAuth, async (req, res) => {
+// GET /member — تاریخچه بازخوردهای عضو
+router.get('/member', requireAuth, async (req, res) => {
   try {
     const customer = await prisma.customer.findFirst({
       where: {
@@ -236,7 +316,6 @@ router.get('/member/feedback', requireAuth, async (req, res) => {
       return res.status(404).json({ success: false, message: 'مشتری یافت نشد' });
     }
 
-    // دریافت بازخوردها همراه با CSAT Token
     const items = await prisma.customerFeedback.findMany({
       where: { customerId: customer.id },
       include: {
@@ -253,7 +332,6 @@ router.get('/member/feedback', requireAuth, async (req, res) => {
       take: 50,
     });
 
-    // اضافه کردن لینک CSAT و وضعیت CSAT
     const result = items.map(item => ({
       ...item,
       csatLink: item.csatTokens.length > 0
@@ -269,8 +347,8 @@ router.get('/member/feedback', requireAuth, async (req, res) => {
   }
 });
 
-// POST /member/feedback — ثبت بازخورد توسط عضو
-router.post('/member/feedback', requireAuth, async (req, res) => {
+// POST /member — ثبت بازخورد توسط عضو
+router.post('/member', requireAuth, async (req, res) => {
   try {
     const { type = 'COMPLAINT', subject, description, channel = 'WEB' } = req.body;
 
@@ -314,7 +392,6 @@ router.post('/member/feedback', requireAuth, async (req, res) => {
       },
     });
 
-    // ─── 🔔 نوتیفیکیشن به ادمین‌ها ───
     const admins = await prisma.user.findMany({
       where: { role: 'ADMIN', status: 'ACTIVE' },
       select: { id: true },
@@ -339,6 +416,176 @@ router.post('/member/feedback', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('[member/feedback/create] خطا:', error);
     return res.status(500).json({ success: false, message: 'خطا در ثبت بازخورد' });
+  }
+});
+
+// ════════════════════════════════════════════
+// 🔹 روت‌های CSAT (عمومی - بدون احراز هویت)
+// ════════════════════════════════════════════
+
+// GET /csat/:token — دریافت اطلاعات فرم CSAT
+router.get('/csat/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    const csatToken = await prisma.csatToken.findUnique({
+      where: { token },
+      include: {
+        customer: {
+          select: { fullName: true, mobile: true }
+        },
+        feedback: {
+          select: { id: true, subject: true, description: true }
+        }
+      }
+    });
+
+    if (!csatToken) {
+      return res.status(404).json({
+        success: false,
+        message: 'لینک نامعتبر است'
+      });
+    }
+
+    if (csatToken.status === 'SUBMITTED') {
+      return res.status(400).json({
+        success: false,
+        message: 'شما قبلاً امتیاز داده‌اید'
+      });
+    }
+
+    if (new Date() > csatToken.expiresAt) {
+      return res.status(400).json({
+        success: false,
+        message: 'لینک منقضی شده است'
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        token: csatToken.token,
+        customerName: csatToken.customer?.fullName,
+        feedbackSubject: csatToken.feedback?.subject,
+        expiresAt: csatToken.expiresAt,
+      }
+    });
+  } catch (error) {
+    console.error('[csat/get] خطا:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'خطا در دریافت اطلاعات'
+    });
+  }
+});
+
+// POST /csat/:token — ثبت امتیاز CSAT
+router.post('/csat/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { score } = req.body;
+
+    if (!score || score < 1 || score > 5) {
+      return res.status(400).json({
+        success: false,
+        message: 'امتیاز باید بین ۱ تا ۵ باشد'
+      });
+    }
+
+    const csatToken = await prisma.csatToken.findUnique({
+      where: { token },
+    });
+
+    if (!csatToken) {
+      return res.status(404).json({
+        success: false,
+        message: 'لینک نامعتبر است'
+      });
+    }
+
+    if (csatToken.status === 'SUBMITTED') {
+      return res.status(400).json({
+        success: false,
+        message: 'شما قبلاً امتیاز داده‌اید'
+      });
+    }
+
+    if (new Date() > csatToken.expiresAt) {
+      return res.status(400).json({
+        success: false,
+        message: 'لینک منقضی شده است'
+      });
+    }
+
+    // ثبت امتیاز در تراکنش
+    await prisma.$transaction([
+      prisma.csatToken.update({
+        where: { id: csatToken.id },
+        data: {
+          status: 'SUBMITTED',
+          score: score,
+        },
+      }),
+      prisma.customerFeedback.update({
+        where: { id: csatToken.feedbackId },
+        data: { score: score },
+      }),
+      prisma.customer.update({
+        where: { id: csatToken.customerId },
+        data: {
+          csatResponses: { increment: 1 },
+        },
+      })
+    ]);
+
+    // محاسبه میانگین جدید CSAT مشتری
+    const customerCsat = await prisma.csatToken.aggregate({
+      where: {
+        customerId: csatToken.customerId,
+        status: 'SUBMITTED',
+      },
+      _avg: { score: true },
+    });
+
+    if (customerCsat._avg.score) {
+      await prisma.customer.update({
+        where: { id: csatToken.customerId },
+        data: {
+          csatAverage: customerCsat._avg.score,
+        },
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'امتیاز شما با موفقیت ثبت شد. سپاسگزاریم!'
+    });
+  } catch (error) {
+    console.error('[csat/submit] خطا:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'خطا در ثبت امتیاز'
+    });
+  }
+});
+
+// DELETE /:id — حذف بازخورد
+router.delete('/:id', async (req, res) => {
+  try {
+    await prisma.customerFeedback.delete({
+      where: { id: req.params.id }
+    });
+
+    return res.json({
+      success: true,
+      message: 'بازخورد با موفقیت حذف شد'
+    });
+  } catch (error) {
+    console.error('[feedback/delete] خطا:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'خطا در حذف بازخورد'
+    });
   }
 });
 
