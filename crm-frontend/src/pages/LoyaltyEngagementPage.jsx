@@ -9,6 +9,7 @@ import MissionFormModal from '../components/engagement/MissionFormModal';
 import SegmentFormModal from '../components/engagement/SegmentFormModal';
 import DeleteMissionModal from '../components/engagement/DeleteMissionModal';
 import DeleteSegmentModal from '../components/engagement/DeleteSegmentModal';
+import { useNavigate } from 'react-router-dom';
 
 const missionIcons = { PURCHASE_COUNT: Repeat2, PURCHASE_AMOUNT: Target, REFERRAL: UserPlus, PROFILE: BadgeCheck };
 
@@ -65,10 +66,12 @@ function formatCriteria(criteria) {
 }
 
 export default function LoyaltyEngagementPage() {
+  const navigate = useNavigate();
   const [tab, setTab] = useState('missions');
   const [missions, setMissions] = useState([]);
   const [segments, setSegments] = useState([]);
   const [loading, setLoading] = useState(true);
+  
   
   // States for modals
   const [missionModalOpen, setMissionModalOpen] = useState(false);
@@ -259,9 +262,12 @@ export default function LoyaltyEngagementPage() {
                     </div>
                     <div className="text-[10px] text-slate-400">عضو در این بخش</div>
                   </div>
-                  <button className="text-xs font-bold text-brand-600 flex items-center gap-1">
-                    ساخت پیشنهاد <ArrowUpLeft className="w-3.5 h-3.5"/>
-                  </button>
+                  <button 
+  onClick={() => navigate(`/campaigns`)}
+  className="text-xs font-bold text-brand-600 flex items-center gap-1"
+>
+  ساخت پیشنهاد <ArrowUpLeft className="w-3.5 h-3.5"/>
+</button>
                 </div>
                 
                 {/* ✅ نمایش معیار عضویت به صورت خوانا با وضعیت‌های فارسی */}

@@ -50,6 +50,7 @@ router.get('/dashboard', async (_req, res) => {
       tiers,
       recentRedemptions,
       transactionCount,
+      transactions,  // ← به جای monthlyData - دیتای خام تراکنش‌ها
     ] = await Promise.all([
       prisma.customer.count(),
       prisma.customer.count({ where: { memberStatus: 'ACTIVE', status: { not: 'CHURNED' } } }),
@@ -60,11 +61,29 @@ router.get('/dashboard', async (_req, res) => {
       prisma.loyaltyTier.findMany({ orderBy: { sortOrder: 'asc' } }),
       prisma.rewardRedemption.findMany({ include: { customer: true, reward: true }, orderBy: { requestedAt: 'desc' }, take: 6 }),
       prisma.pointTransaction.count(),
+      // ✅ دیتای خام تراکنش‌ها برای ۶ ماه اخیر
+      prisma.pointTransaction.findMany({
+        where: {
+          createdAt: {
+            gte: new Date(new Date().setMonth(new Date().getMonth() - 6)),
+          },
+        },
+        select: {
+          createdAt: true,
+          type: true,
+          points: true,
+        },
+        orderBy: {
+          createdAt: 'asc',
+        },
+      }),
     ]);
+
     const tierDistribution = tiers.map((tier) => ({
       ...tier,
       members: tierRows.find((row) => row.tierId === tier.id)?._count || 0,
     }));
+
     return res.json({
       success: true,
       data: {
@@ -82,6 +101,7 @@ router.get('/dashboard', async (_req, res) => {
         },
         tierDistribution,
         recentRedemptions,
+        transactions,  // ← ارسال دیتای خام به فرانت‌اند
       },
     });
   } catch (error) {
@@ -89,7 +109,6 @@ router.get('/dashboard', async (_req, res) => {
     return res.status(500).json({ success: false, message: 'خطا در دریافت داشبورد باشگاه' });
   }
 });
-
 // ════════════════════════════════════════════
 // GET /tiers
 // ════════════════════════════════════════════

@@ -70,6 +70,7 @@ router.get('/portal/me', requireMember, async (req, res) => {
 });
 
 router.post('/portal/registrations', requireMember, async (req, res) => {
+
   const representative = await prisma.representativeAccount.findUnique({ where: { customerId: req.member.id } });
   if (!representative || representative.status !== 'ACTIVE') return res.status(403).json({ success: false, message: 'نمایندگی فعال یافت نشد' });
   const contractorMobile = smsService.normalizePhone(req.body.contractorMobile);

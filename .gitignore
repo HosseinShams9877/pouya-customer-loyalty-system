@@ -4,3 +4,5 @@ node_modules/
 dist/
 coverage/
 *.log
+crm-backend/prisma/prisma/dev.db
+crm-backend/prisma/prisma/dev.db-journal
