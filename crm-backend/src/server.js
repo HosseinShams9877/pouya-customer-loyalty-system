@@ -35,6 +35,7 @@ const feedbackRoutes = require('./routes/feedback');
 const communicationRoutes = require('./routes/communications');
 const businessRoutes = require('./routes/business');
 const schedulerService = require('./services/schedulerService');
+const prisma = require('./lib/prisma'); // ✅ اضافه کن
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -65,7 +66,13 @@ app.use(bigintMiddleware);
 
 // ─── Health ───
 app.get('/api/v1/health', (_req, res) => {
-  res.json({ success: true, message: 'هسته یکپارچه CRM و باشگاه مشتریان فعال است', version: '2.2.0', modules: ['sales', 'loyalty', 'retention', 'representatives', 'voice-of-customer', 'sepidar-excel', 'growth-operations', 'transport', 'member-inquiries', 'data-quality'], timestamp: new Date().toISOString() });
+  res.json({ 
+    success: true, 
+    message: 'هسته یکپارچه CRM و باشگاه مشتریان فعال است', 
+    version: '2.2.0', 
+    modules: ['sales', 'loyalty', 'retention', 'representatives', 'voice-of-customer', 'sepidar-excel', 'growth-operations', 'transport', 'member-inquiries', 'data-quality'], 
+    timestamp: new Date().toISOString() 
+  });
 });
 
 // ─── Routes ───
@@ -109,14 +116,31 @@ app.use((err, _req, res, _next) => {
   });
 });
 
-// ─── Start ───
-if (require.main === module) app.listen(PORT, () => {
-  console.log(`\n  ╔════════════════════════════════════════╗`);
-  console.log(`  ║  CRM + باشگاه مشتریان پویا           ║`);
-  console.log(`  ║  Port: ${PORT}                          ║`);
-  console.log(`  ║  Env:  ${process.env.NODE_ENV || 'development'}                       ║`);
-  console.log(`  ╚════════════════════════════════════════╝\n`);
-  schedulerService.startScheduler();
-});
+// ─── Start Server ───
+async function startServer() {
+  try {
+    // ✅ اتصال به دیتابیس قبل از شروع
+    await prisma.$connect();
+    console.log('✅ Connected to database');
+    
+    app.listen(PORT, () => {
+      console.log(`\n  ╔════════════════════════════════════════╗`);
+      console.log(`  ║  CRM + باشگاه مشتریان پویا           ║`);
+      console.log(`  ║  Port: ${PORT}                          ║`);
+      console.log(`  ║  Env:  ${process.env.NODE_ENV || 'development'}                       ║`);
+      console.log(`  ╚════════════════════════════════════════╝\n`);
+      schedulerService.startScheduler();
+    });
+  } catch (error) {
+    console.error('❌ Failed to connect to database:', error.message);
+    process.exit(1);
+  }
+}
 
+// ✅ برای Vercel: فقط در صورت اجرای مستقیم شروع کن
+if (require.main === module) {
+  startServer();
+}
+
+// ✅ برای Vercel: app رو export کن
 module.exports = app;
