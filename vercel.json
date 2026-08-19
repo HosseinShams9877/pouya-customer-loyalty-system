@@ -7,18 +7,27 @@
     },
     {
       "src": "crm-frontend/package.json",
-      "use": "@vercel/static-build"
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
     }
   ],
-  "outputDirectory": "crm-frontend/dist",
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "crm-backend/src/server.js"
+      "dest": "/crm-backend/src/server.js"
     },
     {
       "src": "/(.*)",
-      "dest": "crm-frontend/index.html"
+      "dest": "/crm-frontend/$1"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/crm-frontend/index.html"
     }
   ]
 }
