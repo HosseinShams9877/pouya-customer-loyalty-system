@@ -43,6 +43,7 @@ console.log('🔍 FRONTEND_URL from env:', process.env.FRONTEND_URL);
 // ─── Middleware ───
 const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000')
   .split(',').map((value) => value.trim()).filter(Boolean);
+  /*
 app.use(cors({
   origin(origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
@@ -50,6 +51,11 @@ app.use(cors({
   },
   credentials: true,
 }));
+*/
+app.use(cors({
+  origin: true,
+  credentials: true
+}))
 app.disable('x-powered-by');
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
