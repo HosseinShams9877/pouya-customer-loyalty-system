@@ -39,7 +39,7 @@ const prisma = require('./lib/prisma'); // ✅ اضافه کن
 
 const app = express();
 const PORT = process.env.PORT || 4000;
-
+console.log('🔍 FRONTEND_URL from env:', process.env.FRONTEND_URL);
 // ─── Middleware ───
 const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000')
   .split(',').map((value) => value.trim()).filter(Boolean);
