@@ -6,11 +6,8 @@
       "use": "@vercel/node"
     },
     {
-      "src": "crm-frontend/**",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "dist"
-      }
+      "src": "crm-frontend/package.json",
+      "use": "@vercel/static-build"
     }
   ],
   "routes": [
