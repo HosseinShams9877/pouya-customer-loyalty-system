@@ -25,6 +25,10 @@ async function requestOtp(rawMobile) {
   const expiryMinutes = Math.max(1, Math.min(10, Number(await settingsService.get('memberOtpExpiryMinutes')) || 3));
   const code = randomOtp();
   const expiresAt = new Date(Date.now() + expiryMinutes * 60_000);
+    console.log('📱 [OTP] کد تولید شده:', code);
+  console.log('📱 [OTP] برای شماره:', mobile);
+  console.log('📱 [OTP] HEPIKAL_API_KEY:', process.env.HEPIKAL_API_KEY ? 'تنظیم شده' : 'تنظیم نشده');
+  console.log('📱 [OTP] NODE_ENV:', process.env.NODE_ENV);
   await prisma.$transaction([
     prisma.memberOtpCode.updateMany({
       where: { customerId: customer.id, usedAt: null },
@@ -37,6 +41,9 @@ async function requestOtp(rawMobile) {
 
  const isFakeMode = !process.env.HEPIKAL_API_KEY || process.env.HEPIKAL_API_KEY === 'your-hepikal-api-key';  
  const shouldReturnDemoCode = isFakeMode || process.env.NODE_ENV !== 'production';
+  console.log('📱 [OTP] isFakeMode:', isFakeMode);
+  console.log('📱 [OTP] shouldReturnDemoCode:', shouldReturnDemoCode);
+  console.log('📱 [OTP] demoCode ارسال به فرانت:', shouldReturnDemoCode ? code : 'نه');
   await smsService.sendSMS(mobile, `کد ورود به باشگاه مشتریان پویا پلاستیک: ${code}\nاعتبار: ${expiryMinutes} دقیقه`);
   return {
     accepted: true,
