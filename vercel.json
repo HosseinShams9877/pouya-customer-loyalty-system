@@ -7,12 +7,10 @@
     },
     {
       "src": "crm-frontend/package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "crm-frontend/dist"
-      }
+      "use": "@vercel/static-build"
     }
   ],
+  "outputDirectory": "crm-frontend/dist",
   "routes": [
     {
       "src": "/api/(.*)",
@@ -20,7 +18,7 @@
     },
     {
       "src": "/(.*)",
-      "dest": "/crm-frontend/index.html"
+      "dest": "crm-frontend/index.html"
     }
   ]
 }
