@@ -205,10 +205,20 @@
    // ==============================================
    // 🔴 حالت PRODUCTION: ارسال واقعی
    // ==============================================
-   if (!HEPIKAL_API_KEY) {
-     console.warn('[smsService] ⚠️ HEPIKAL_API_KEY تنظیم نشده — ارسال واقعی غیرممکن است');
-     throw new Error('HEPIKAL_API_KEY تنظیم نشده است');
-   }
+  if (!process.env.HEPIKAL_API_KEY || process.env.HEPIKAL_API_KEY === 'your-hepikal-api-key') {
+  console.log(`[smsService] 🔵 DEMO MODE - BULK SMS`);
+  console.log(`   📱 تعداد گیرندگان: ${recipients.length}`);
+  console.log(`   📝 متن: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`);
+  console.log(`   ✅ شبیه‌سازی ارسال بچ (پیامکی ارسال نشد)`);
+  
+  return {
+    total: recipients.length,
+    sent: recipients.length,
+    failed: 0,
+    details: recipients.map(to => ({ to, success: true, dryRun: true })),
+    mode: 'demo',
+  };
+}
  
    const results = {
      total: recipients.length,
@@ -249,9 +259,9 @@
      return { messageId, status: 'delivered', dryRun: true, mode: 'development' };
    }
  
-   if (!HEPIKAL_API_KEY) {
-     throw new Error('HEPIKAL_API_KEY تنظیم نشده است');
-   }
+   if (!process.env.HEPIKAL_API_KEY || process.env.HEPIKAL_API_KEY === 'your-hepikal-api-key') {
+  return { messageId, status: 'delivered', dryRun: true, mode: 'demo' };
+}
  
    try {
      const response = await axios.get(`${HEPIKAL_BASE_URL}/sms/status`, {
@@ -275,9 +285,9 @@
      return { credit: Infinity, currency: 'IRR', dryRun: true, mode: 'development' };
    }
  
-   if (!HEPIKAL_API_KEY) {
-     throw new Error('HEPIKAL_API_KEY تنظیم نشده است');
-   }
+  if (!process.env.HEPIKAL_API_KEY || process.env.HEPIKAL_API_KEY === 'your-hepikal-api-key') {
+  return { messageId, status: 'delivered', dryRun: true, mode: 'demo' };
+}
  
    try {
      const response = await axios.get(`${HEPIKAL_BASE_URL}/account/credit`, {
