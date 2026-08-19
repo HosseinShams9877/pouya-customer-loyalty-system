@@ -34,12 +34,15 @@ async function requestOtp(rawMobile) {
       data: { customerId: customer.id, codeHash: otpHash(mobile, code), expiresAt },
     }),
   ]);
+
+ const isFakeMode = !process.env.HEPIKAL_API_KEY || process.env.HEPIKAL_API_KEY === 'your-hepikal-api-key';  
+ const shouldReturnDemoCode = isFakeMode || process.env.NODE_ENV !== 'production';
   await smsService.sendSMS(mobile, `کد ورود به باشگاه مشتریان پویا پلاستیک: ${code}\nاعتبار: ${expiryMinutes} دقیقه`);
   return {
     accepted: true,
     mobile,
     expiresIn: expiryMinutes * 60,
-    ...(process.env.NODE_ENV !== 'production' && { demoCode: code }),
+    ...(shouldReturnDemoCode  && { demoCode: code }),
   };
 }
 
