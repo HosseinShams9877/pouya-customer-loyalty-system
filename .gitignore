@@ -40,4 +40,4 @@ Thumbs.db
 # Temporary
 .tmp/
 temp/
-*.tmp
+crm-frontend/dist
