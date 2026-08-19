@@ -91,11 +91,21 @@
    // ==============================================
    // 🔴 حالت PRODUCTION: ارسال واقعی
    // ==============================================
-   if (!HEPIKAL_API_KEY) {
-     console.warn('[smsService] ⚠️ HEPIKAL_API_KEY تنظیم نشده — ارسال واقعی غیرممکن است');
-     console.warn('[smsService] ⚠️ لطفاً HEPIKAL_API_KEY را در .env تنظیم کنید');
-     throw new Error('HEPIKAL_API_KEY تنظیم نشده است');
-   }
+   if (!process.env.HEPIKAL_API_KEY || process.env.HEPIKAL_API_KEY === 'your-hepikal-api-key') {
+    console.log(`[smsService] 🔵 DEMO MODE - NO SMS SENT`);
+    console.log(`   📱 به: ${to}`);
+    console.log(`   📝 متن: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`);
+    console.log(`   ✅ شبیه‌سازی ارسال موفق (پیامکی ارسال نشد)`);
+    
+    return {
+      success: true,
+      dryRun: true,
+      to,
+      messageId: `demo_${Date.now()}`,
+      status: 'simulated',
+      mode: 'demo',
+    };
+  }
  
    const cleanNumber = normalizePhone(to);
    if (!cleanNumber) {
