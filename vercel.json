@@ -16,8 +16,20 @@
       "dest": "crm-backend/src/server.js"
     },
     {
+      "src": "/assets/(.*)",
+      "dest": "crm-frontend/dist/assets/$1"
+    },
+    {
+      "src": "/icons/(.*)",
+      "dest": "crm-frontend/dist/icons/$1"
+    },
+    {
+      "src": "/(.*)\\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|webmanifest)",
+      "dest": "crm-frontend/dist/$1.$2"
+    },
+    {
       "src": "/(.*)",
-      "dest": "crm-frontend/index.html"
+      "dest": "crm-frontend/dist/index.html"
     }
   ]
 }
